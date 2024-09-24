@@ -1,5 +1,3 @@
-
-
 export class Game extends Phaser.Scene {
     constructor() {
         super('Game');
@@ -13,42 +11,92 @@ export class Game extends Phaser.Scene {
 
     create() {
         console.log(this); // Verificar el contexto
-
+    
         this.paddle = this.physics.add.image(400, 550, "paddle");
-        this.paddle.setImmovable().setSize(700).setScale(0.2)
-        this.ball = this.physics.add.sprite(400, 500, 'ball').setSize(900).setScale(0.04);
-        this.ball.setCollideWorldBounds(true);
-        this.ball.setBounce(1);
+        this.paddle.setImmovable().setSize(700).setScale(0.2);
+        
+        // Inicializa la velocidad de la pelota
+        this.initialBallVelocityX = -75;
+        this.initialBallVelocityY = -300;
+        
+        // Crear un grupo de pelotas
+        this.ballsGroup = this.physics.add.group();
+        this.createBall(); // Crear la pelota inicial
 
         this.blocksGroup = this.physics.add.group(); // Inicializa el grupo de bloques
-
-        for (let i = 0; i < 5; i++) {
-            const block = this.blocksGroup.create(400 + (i * 100), 100, 'blocks').setImmovable().setSize(700).setScale(0.2);
-            block.setData('hits', Math.floor(Math.random() * 3) + 1);
+    
+        const blockWidth = 100; // Ancho del bloque
+        const blockHeight = 20; // Alto del bloque
+        const rows = 3; // Cantidad de filas
+        const cols = 5; // Cantidad de columnas
+        const padding = 80; // Espaciado entre ladrillos
+    
+        const originalWidth = 670; // Ancho original del sprite
+        const originalHeight = 370; // Alto original del sprite
+        const scaleX = blockWidth / originalWidth; // Factor de escala para ancho
+        const scaleY = blockHeight / originalHeight; // Factor de escala para alto
+    
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const blockX = 160 + (col * (blockWidth + padding)); // Posición X del bloque
+                const blockY = 50 + (row * (blockHeight + padding)); // Posición Y del bloque
+                const block = this.blocksGroup.create(blockX, blockY, 'blocks').setImmovable();
+    
+                // Ajustar el tamaño de colisión
+                block.setSize(600, 220);
+    
+                // Ajustar el tamaño visual del sprite
+                block.setScale(scaleX, scaleY); // Aplicar escala
+                block.setDisplaySize(blockWidth, blockHeight); // Asegurarse de que el tamaño del sprite se ajuste visualmente
+                
+                block.setData('hits', Math.floor(Math.random() * 3) + 1);
+                block.setData('createsBall', true); // Marca como "creador de pelota"
+            }
         }
-
-        this.physics.add.collider(this.ball, this.blocksGroup, this.hitBlock, null, this);
-        this.physics.add.collider(this.ball, this.paddle, this.hitPaddle, null, this);
+    
+        this.physics.add.collider(this.ballsGroup, this.blocksGroup, this.hitBlock, null, this);
+        this.physics.add.collider(this.ballsGroup, this.paddle, this.hitPaddle, null, this);
         
         this.input.on('pointermove', (pointer) => {
             this.paddle.x = Phaser.Math.Clamp(pointer.x, 52, 990);
         });
-
+    
         this.input.on('pointerup', () => {
-            if (this.ball.getData('onPaddle')) {
-                this.ball.setVelocity(-75, -300);
-                this.ball.setData('onPaddle', false);
+            if (this.ballsGroup.getChildren().length > 0 && this.ballsGroup.getChildren()[0].getData('onPaddle')) {
+                this.ballsGroup.getChildren()[0].setVelocity(this.initialBallVelocityX, this.initialBallVelocityY);
+                this.ballsGroup.getChildren()[0].setData('onPaddle', false);
             }
         });
-
-        this.ball.setData('onPaddle', true);
+    
+        this.ballsGroup.getChildren()[0].setData('onPaddle', true);
+    }
+    
+    createBall() {
+        const ball = this.physics.add.sprite(400, 500, 'ball').setSize(900).setScale(0.04);
+        ball.setCollideWorldBounds(true);
+        ball.setBounce(1);
+        ball.setData('onPaddle', true);
+        this.ballsGroup.add(ball);
     }
 
     update() {
-        if (this.ball.y > 600) {
-            this.ball.setPosition(this.paddle.x, 400);
-            this.ball.setVelocity(200);
-            this.ball.setData('onPaddle', true);
+        this.ballsGroup.getChildren().forEach(ball => {
+            if (ball.y > 600) { // Ajusta este valor según la altura del área de juego
+                ball.destroy(); // Destruye la pelota al tocar el suelo
+            }
+        });
+
+        if (this.ballsGroup.countActive(true) === 0) {
+            // Aquí puedes agregar lógica para manejar el "Game Over"
+            this.scene.start('GameOver'); // Cambia a la escena de Game Over
+            return; // Detiene la ejecución del resto del método
+        }
+
+        // Reiniciar la escena si se eliminaron todos los bloques
+        if (this.blocksGroup.countActive(true) === 0) {
+            this.initialBallVelocityX *= 1.1; // Aumenta la velocidad en un 10%
+            this.initialBallVelocityY *= 1.1; // Aumenta la velocidad en un 10%
+            this.scene.restart(); // Reinicia la escena
         }
     }
 
@@ -61,12 +109,16 @@ export class Game extends Phaser.Scene {
         let tint = 0xff0000; // Color de tinte inicial (rojo en este caso)
         let tintAmount = Math.floor((3 - hits) * (0x555555)); // Cada golpe oscurece el bloque más
         block.setTint(tint ^ tintAmount); // Aplica el tinte
+
+        // Crear una nueva pelota si el bloque es un creador de pelota
+        if (hits <= 0 && block.getData('createsBall')) {
+            this.createBall(); // Crear una nueva pelota
+        }
     
         if (hits <= 0) {
             block.disableBody(true, true);
         }
     }
-    
 
     hitPaddle(ball, paddle) {
         let diff = 0;
@@ -80,5 +132,8 @@ export class Game extends Phaser.Scene {
         } else {
             ball.setVelocityX(2 + Math.random() * 8);
         }
+
+        // Asegúrate de que la pelota rebote adecuadamente
+        ball.setVelocityY(-Math.abs(ball.body.velocity.y)); // Asegúrate de que la velocidad Y sea negativa
     }
 }
